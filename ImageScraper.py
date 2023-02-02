@@ -3,8 +3,6 @@ import time
 import pathlib
 import os
 import requests
-import io
-from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.service import Service
@@ -16,8 +14,15 @@ class BasePath():
 
 class DownloadImage(BasePath):
     def __init__(self, FOLDER_NAME):
-        self.FOLDER_NAME = FOLDER_NAME
+        self.FOLDER_NAME    = FOLDER_NAME
+        self.failedDownload = 0
     
+    def getFailedDownload(self):
+        return self.failedDownload
+    
+    def addFailedDownload(self):
+        self.failedDownload += 1
+
     def getFolderPath(self):
         return f"{super().getBasePath()}\{self.FOLDER_NAME}"
 
@@ -30,31 +35,70 @@ class DownloadImage(BasePath):
         except OSError as e:
             print("Error: CANNOT CREATE FOLDER!")
     
-    def downloadImage(self, filename, extension, picURL):
-        success = False
+    def downloadImage(self, FILE_PATH, picURL):
         try:
-            self.createFolder()
-
-            imageContent = requests.get(picURL).content
-            imageFile    = io.BytesIO(imageContent)
-            image        = Image.open(imageFile)
-            FILE_PATH    = f"{self.getFolderPath()}\{filename}.{extension}"
-            print(FILE_PATH)
-
-            with open(FILE_PATH, 'wb') as file:
-                image.save(file, "PNG")
-            success = True
+            response = requests.get(picURL)
+            if response.status_code:
+                fileMaker = open(FILE_PATH, 'wb')
+                fileMaker.write(response.content)
+                fileMaker.close()
 
         except Exception as e:
-            print(f"Error downloading {filename}")
+            self.addFailedDownload()
+            print(f"ERROR: Cannot download image!")
+    
+    def downloadByBatch(self, BUCKETS, EXTENSION):
+        self.createFolder()
 
-        return success
+        for ctr, picURL in enumerate(BUCKETS):
+            filePath = f"{self.getFolderPath()}\{ctr}.{EXTENSION}"
+            self.downloadImage(filePath, picURL)
+        
+        self.getDownloadReport(BUCKETS)
+
+    def getDownloadReport(self, BUCKETS):
+        print("\n--------------- DOWNLOAD REPORT ---------------\n")
+        print(f"Failed Download: {self.getFailedDownload()}/{len(BUCKETS)}\n")
 
 class ScrapeImagesFromNet():
     def __init__(self, ITEMS):
         self.ITEMS           = ITEMS
         self.DRIVER          = None
-        self.imageDownloader = DownloadImage("sample")
+        self.bucket          = set()
+        self.skips           = 0
+        self.maxImages       = ITEMS
+        self.failedSearch    = 0
+        self.imageDownloader = None
+
+    def getItems(self):
+        return self.ITEMS
+
+    def getSkips(self):
+        return self.skips
+    
+    def addSkip(self):
+        self.skips += 1
+
+    def getBucket(self):
+        return self.bucket
+    
+    def clearBucket(self):
+        self.bucket.clear()
+    
+    def addItemToBucket(self, ITEM):
+        self.bucket.add(ITEM)
+
+    def getMaxImages(self):
+        return self.maxImages
+    
+    def addMaxImage(self):
+        self.maxImages += 1
+    
+    def getFailedSearches(self):
+        return self.failedSearch
+    
+    def setFailedSearches(self, FAILED_SEARCHES):
+        self.failedSearch = FAILED_SEARCHES
 
     def initializeWebDriver(self):
         PATH        = Service("C:\Program Files (x86)\chromedriver\msedgedriver.exe")
@@ -77,6 +121,10 @@ class ScrapeImagesFromNet():
     def getLink(self, QUERY):
         LINK = f"https://www.google.com/search?q=+{QUERY}+&sxsrf=AJOqlzVmmNsdmEI6pBIIPDxl4Hb_IiGpRw:1675135394870&source=lnms&tbm=isch&sa=X&ved=2ahUKEwimw6XR7fD8AhXmt2MGHXUVCesQ_AUoAnoECAEQBA&cshid=1675135401347283&biw=1920&bih=965"
         return LINK
+    
+    def scrollDown(self):
+        self.DRIVER.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+        time.sleep(2)
 
     def imageScraper(self, RAW_QUERY, IS_OPEN):
         if not IS_OPEN:
@@ -84,46 +132,65 @@ class ScrapeImagesFromNet():
 
         self.DRIVER.get(self.getLink(self.getCleanQuery(RAW_QUERY)))
 
-        THUMBNAIL_CLASS_CODE = "Q4LuWd"
-        thumbnails = self.DRIVER.find_elements(By.CLASS_NAME, THUMBNAIL_CLASS_CODE)
+        while len(self.getBucket()) + self.getSkips() < self.getMaxImages():
+            self.scrollDown()
 
-        ctr = 0
-        for image in thumbnails:
-            image.click()
-            time.sleep(1)
+            THUMBNAIL_CLASS_CODE = "Q4LuWd"
+            thumbnails = self.DRIVER.find_elements(By.CLASS_NAME, THUMBNAIL_CLASS_CODE)
 
-            if(ctr >= self.ITEMS):
+            if self.getCurrentHeight() > self.getEndHeight():
+                self.setFailedSearches(self.getItems() - len(self.getBucket()))
                 break
-            
-            if self.getImageDetails(ctr):
-                ctr += 1
-    
-    def getImageDetails(self, CTR):
+
+            for image in thumbnails[len(self.getBucket()) + self.getSkips() : self.getMaxImages()]:
+                try:
+                    image.click()
+                    time.sleep(0.5)
+                    self.getImageDetails()
+                except:
+                    continue
+        
+        self.imageDownloader = DownloadImage(RAW_QUERY)
+        self.getSearchReport()
+        self.imageDownloader.downloadByBatch(self.getBucket(), "jpg")
+        self.clearBucket()
+
+    def getImageDetails(self):
         IMAGE_CLASS_CODE = "n3VNCb"
         images           = self.DRIVER.find_elements(By.CLASS_NAME, IMAGE_CLASS_CODE)
-        isValid          = False
 
         for image in images:
             ATTRIBUTE = image.get_attribute('src')
             if ATTRIBUTE:
-                if 'http' in ATTRIBUTE and 'png' in ATTRIBUTE:
-                    if self.imageDownloader.downloadImage(f"something_{CTR}", "png", ATTRIBUTE):
-                        isValid = True
-                        break
-        return isValid
-                
+                #and ('jpg' in ATTRIBUTE or 'jpeg' in ATTRIBUTE)
+                if 'http' in ATTRIBUTE and 'encrypted' not in ATTRIBUTE:
+                    self.addItemToBucket(ATTRIBUTE)
+                if ATTRIBUTE in self.getBucket():
+                    self.addMaxImage()
+                    self.addSkip()
+                    break
     
+    def getEndHeight(self):
+        return self.DRIVER.execute_script("return document.documentElement.scrollHeight")
+    
+    def getCurrentHeight(self):
+        return self.DRIVER.execute_script("return window.pageYOffset + window.innerHeight")
+
+    def getSearchReport(self):
+        print("\n--------------- SEARCH REPORT ---------------\n")
+        print(f"Failed Search: {self.getFailedSearches()}/{self.getItems()}")
+                
     def closeDriver(self):
         self.DRIVER.quit()
 
 class ApplicationDriver(BasePath):
     def __init__(self, TYPE):
         self.TYPE         = TYPE
+        self.TOPIC        = None
         self.folderName   = None
         self.imageScraper = None
 
         self.start()
-        # print(self.askForFileName(input()))
     
     def getFolderName(self):
         return self.folderName
@@ -133,42 +200,52 @@ class ApplicationDriver(BasePath):
 
     def start(self):
         ITEMS = self.askForNumberOfItems(int(input("Enter Number of Items: ")))
+        self.setTopic(input("Enter topic: "))
         self.imageScraper = ScrapeImagesFromNet(ITEMS)
 
         if self.TYPE == "single":
-            self.imageScraper.imageScraper("Actress that won Oscars in 2015 png", False)
+            self.imageScraper.imageScraper(self.getTopic(), False)
         elif self.TYPE == "multiple":
             self.multipleItems()
 
         self.imageScraper.closeDriver()
-        print("----- Application Closed -----")
+        print("--------------- Application Closed ---------------")
     
     def askForNumberOfItems(self, ITEMS):
         if ITEMS < 0:
             print("Error: INVALID INPUT!")
-            return self.askForNumberOfItems(int(input("Enter Number of Items:")))
+            return self.askForNumberOfItems(int(input("Enter Number of Items: ")))
+        elif ITEMS > 200:
+            print("Error: INPUT MUST BE EQUAL OR LOWER THAN 200!")
+            return self.askForNumberOfItems(int(input("Enter Number of Items: ")))
         else:
             return ITEMS
 
     def getTextFilePath(self, FILENAME):
         return f"{super().getBasePath()}\{FILENAME}.txt"
 
+    def setTopic(self, TOPIC):
+        self.TOPIC = TOPIC
+
+    def getTopic(self):
+        return self.TOPIC
+
     def askForFileName(self, FILENAME):
-        FILE_PATH = self.getTextFilePath()
+        FILE_PATH = self.getTextFilePath(FILENAME)
         if not os.path.isfile(FILE_PATH):
             print("Error: FILE DOES NOT EXIST!")
-            return self.askForFileName(input("Enter Filename: "))
+            return self.askForFileName(input("Enter filename: "))
         else:
             return FILE_PATH
     
     def multipleItems(self):
-        FILE_PATH = self.askForFileName(input("Enter Filename: "))
+        FILE_PATH = self.askForFileName(input("Enter filename: "))
         with open(FILE_PATH, 'r') as textFile:
-            imageURLS = set()
 
             isOpen = False
             for line in textFile:
-                self.imageScraper.imageScraper(f"famous person from {line}", isOpen)
+                line = line.split("\n")[0]
+                self.imageScraper.imageScraper(f"{self.getTopic()} {line}", isOpen)
                 isOpen = True
 
 ### Code Execution       
