@@ -15,4 +15,4 @@ Version 1.2:
 
 Problems:
 
-- Multiple options is bugged [Cannot Scrape after 3rd iteration] 
+- Multiple options is bugged [Depends on the number of items (100 plus)] 
