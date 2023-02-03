@@ -12,6 +12,26 @@ class BasePath():
     def getBasePath(self):
         return pathlib.Path().resolve()
 
+class ProgressBar():
+    def __init__(self, TOTAL, PREFIX):
+        self.TOTAL    = TOTAL
+        self.PREFIX   = PREFIX
+        self.SUFFIX   = 'Complete'
+        self.DECIMALS = 1
+        self.FILL     = '#'
+        self.LENGTH   = 50
+
+        print('\n')
+        self.progressBar(0)
+
+    def progressBar(self, ITERATION):
+        percent      = ('{0:.' + str(self.DECIMALS) + 'f}').format(100 * (ITERATION / float(self.TOTAL)))
+        filledLength = int(self.LENGTH * ITERATION // self.TOTAL)
+        bar          = self.FILL * filledLength + '-' * (self.LENGTH - filledLength)
+        print(f'\r{self.PREFIX} |{bar}| {percent}% {self.SUFFIX}', end='\r')
+        if ITERATION == self.TOTAL:
+            print()
+
 class DownloadImage(BasePath):
     def __init__(self, FOLDER_NAME):
         self.FOLDER_NAME    = FOLDER_NAME
@@ -47,17 +67,19 @@ class DownloadImage(BasePath):
             self.addFailedDownload()
             print(f"ERROR: Cannot download image!")
     
-    def downloadByBatch(self, BUCKETS, EXTENSION):
+    def downloadByBatch(self, BUCKETS, EXTENSION, TOPIC):
+        progressBar = ProgressBar(len(BUCKETS), "Downloading")
         self.createFolder()
 
         for ctr, picURL in enumerate(BUCKETS):
             filePath = f"{self.getFolderPath()}\{ctr}.{EXTENSION}"
             self.downloadImage(filePath, picURL)
+            progressBar.progressBar(ctr + 1)
         
-        self.getDownloadReport(BUCKETS)
+        self.getDownloadReport(BUCKETS, TOPIC)
 
-    def getDownloadReport(self, BUCKETS):
-        print("\n--------------- DOWNLOAD REPORT ---------------\n")
+    def getDownloadReport(self, BUCKETS, TOPIC):
+        print(f"\n--------------- DOWNLOAD REPORT [{TOPIC}] ---------------\n")
         print(f"Failed Download: {self.getFailedDownload()}/{len(BUCKETS)}\n")
 
 class ScrapeImagesFromNet():
@@ -69,6 +91,7 @@ class ScrapeImagesFromNet():
         self.maxImages       = ITEMS
         self.failedSearch    = 0
         self.imageDownloader = None
+        self.progressBar     = None
 
     def getItems(self):
         return self.ITEMS
@@ -132,13 +155,17 @@ class ScrapeImagesFromNet():
 
         self.DRIVER.get(self.getLink(self.getCleanQuery(RAW_QUERY)))
 
+        self.progressBar = ProgressBar(self.getItems(), "Scraping")
+
         while len(self.getBucket()) + self.getSkips() < self.getMaxImages():
+            # self.progressBar.progressBar(len(self.getBucket()))
             self.scrollDown()
 
             THUMBNAIL_CLASS_CODE = "Q4LuWd"
             thumbnails = self.DRIVER.find_elements(By.CLASS_NAME, THUMBNAIL_CLASS_CODE)
 
             if self.getCurrentHeight() > self.getEndHeight():
+                self.progressBar.progressBar(self.getItems())
                 self.setFailedSearches(self.getItems() - len(self.getBucket()))
                 break
 
@@ -151,8 +178,8 @@ class ScrapeImagesFromNet():
                     continue
         
         self.imageDownloader = DownloadImage(RAW_QUERY)
-        self.getSearchReport()
-        self.imageDownloader.downloadByBatch(self.getBucket(), "jpg")
+        self.getSearchReport(RAW_QUERY)
+        self.imageDownloader.downloadByBatch(self.getBucket(), "jpg", RAW_QUERY)
         self.clearBucket()
 
     def getImageDetails(self):
@@ -165,6 +192,7 @@ class ScrapeImagesFromNet():
                 #and ('jpg' in ATTRIBUTE or 'jpeg' in ATTRIBUTE)
                 if 'http' in ATTRIBUTE and 'encrypted' not in ATTRIBUTE:
                     self.addItemToBucket(ATTRIBUTE)
+                    self.progressBar.progressBar(len(self.getBucket()))
                 if ATTRIBUTE in self.getBucket():
                     self.addMaxImage()
                     self.addSkip()
@@ -176,8 +204,8 @@ class ScrapeImagesFromNet():
     def getCurrentHeight(self):
         return self.DRIVER.execute_script("return window.pageYOffset + window.innerHeight")
 
-    def getSearchReport(self):
-        print("\n--------------- SEARCH REPORT ---------------\n")
+    def getSearchReport(self, TOPIC):
+        print(f"\n--------------- SEARCH REPORT [{TOPIC}] ---------------\n")
         print(f"Failed Search: {self.getFailedSearches()}/{self.getItems()}")
                 
     def closeDriver(self):
