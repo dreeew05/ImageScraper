@@ -16,3 +16,9 @@ Version 1.2:
 Problems:
 
 - Multiple options is bugged [Depends on the number of items (100 plus)] 
+
+Recommendations:
+
+- Support for PNG files
+- Click show more results at the bottom of the page
+- Instructions for user
