@@ -21,16 +21,20 @@ class ProgressBar():
         self.FILL     = '#'
         self.LENGTH   = 50
 
+    def progressBar(self, ITERATION):
+        try:
+            percent      = ('{0:.' + str(self.DECIMALS) + 'f}').format(100 * (ITERATION / float(self.TOTAL)))
+            filledLength = int(self.LENGTH * ITERATION // self.TOTAL)
+            bar          = self.FILL * filledLength + '-' * (self.LENGTH - filledLength)
+            print(f'\r{self.PREFIX} |{bar}| {percent}% {self.SUFFIX}', end='\r')
+            if ITERATION == self.TOTAL:
+                print()
+        except ZeroDivisionError:
+            pass
+
+    def initializeProgressBar(self):
         print('\n')
         self.progressBar(0)
-
-    def progressBar(self, ITERATION):
-        percent      = ('{0:.' + str(self.DECIMALS) + 'f}').format(100 * (ITERATION / float(self.TOTAL)))
-        filledLength = int(self.LENGTH * ITERATION // self.TOTAL)
-        bar          = self.FILL * filledLength + '-' * (self.LENGTH - filledLength)
-        print(f'\r{self.PREFIX} |{bar}| {percent}% {self.SUFFIX}', end='\r')
-        if ITERATION == self.TOTAL:
-            print()
 
 class DownloadImage(BasePath):
     def __init__(self, FOLDER_NAME):
@@ -57,19 +61,22 @@ class DownloadImage(BasePath):
     
     def downloadImage(self, FILE_PATH, picURL):
         try:
-            response = requests.get(picURL)
+            response = requests.get(picURL, timeout=5)
             if response.status_code:
                 fileMaker = open(FILE_PATH, 'wb')
                 fileMaker.write(response.content)
                 fileMaker.close()
-
-        except Exception as e:
+        except requests.exceptions.Timeout:
             self.addFailedDownload()
-            print(f"ERROR: Cannot download image!")
+            pass
+        except Exception:
+            self.addFailedDownload()
     
     def downloadByBatch(self, BUCKETS, EXTENSION, TOPIC):
         progressBar = ProgressBar(len(BUCKETS), "Downloading")
         self.createFolder()
+
+        progressBar.initializeProgressBar()
 
         for ctr, picURL in enumerate(BUCKETS):
             filePath = f"{self.getFolderPath()}\{ctr}.{EXTENSION}"
@@ -80,7 +87,7 @@ class DownloadImage(BasePath):
 
     def getDownloadReport(self, BUCKETS, TOPIC):
         print(f"\n--------------- DOWNLOAD REPORT [{TOPIC}] ---------------\n")
-        print(f"Failed Download: {self.getFailedDownload()}/{len(BUCKETS)}\n")
+        print(f"Failed Download: {self.getFailedDownload()}/{len(BUCKETS)}")
 
 class ScrapeImagesFromNet():
     def __init__(self, ITEMS):
@@ -91,7 +98,7 @@ class ScrapeImagesFromNet():
         self.maxImages       = ITEMS
         self.failedSearch    = 0
         self.imageDownloader = None
-        self.progressBar     = None
+        self.progressBar     = ProgressBar(ITEMS, "Scraping")
 
     def getItems(self):
         return self.ITEMS
@@ -155,7 +162,7 @@ class ScrapeImagesFromNet():
 
         self.DRIVER.get(self.getLink(self.getCleanQuery(RAW_QUERY)))
 
-        self.progressBar = ProgressBar(self.getItems(), "Scraping")
+        self.progressBar.initializeProgressBar()
 
         while len(self.getBucket()) + self.getSkips() < self.getMaxImages():
             # self.progressBar.progressBar(len(self.getBucket()))

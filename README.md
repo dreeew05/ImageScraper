@@ -12,3 +12,7 @@ Version 1.1:
 Version 1.2:
 
 - Added Progress Bar
+
+Problems:
+
+- Multiple options is bugged [Cannot Scrape after 3rd iteration] 
