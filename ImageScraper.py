@@ -98,7 +98,7 @@ class ScrapeImagesFromNet():
         self.maxImages       = ITEMS
         self.failedSearch    = 0
         self.imageDownloader = None
-        self.progressBar     = ProgressBar(ITEMS, "Scraping")
+        self.progressBar     = ProgressBar(self.getItems(), "Scraping")
 
     def getItems(self):
         return self.ITEMS
@@ -279,8 +279,8 @@ class ApplicationDriver(BasePath):
 
             isOpen = False
             for line in textFile:
-                line = line.split("\n")[0]
-                self.imageScraper.imageScraper(f"{self.getTopic()} {line}", isOpen)
+                QUERY = line.split("\n")[0]
+                self.imageScraper.imageScraper(f"{self.getTopic()} {QUERY}", isOpen)
                 isOpen = True
 
 ### Code Execution       
