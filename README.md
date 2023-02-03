@@ -3,7 +3,7 @@ Image Scraper
 [\*] Version 1.2 </br>
 [\*] Author: @five </br>
 
-Path Notes:
+Patch Notes:
 
 Version 1.1:
 
